@@ -1,3 +1,4 @@
+# Workflow: checks YouTube channels and posts to Discord
 name: YouTube to Discord
 
 on:
