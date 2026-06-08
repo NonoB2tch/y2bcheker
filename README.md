@@ -1,78 +1,79 @@
 # YouTube -> Discord via GitHub Actions
 
-Automatically checks YouTube RSS and posts new videos to a Discord channel via webhook.
+Автоматически проверяет YouTube RSS-ленты и отправляет уведомления о новых видео в Discord через webhook.
 
-## How it works
+## Как работает
 
-- Runs every 5 minutes via GitHub Actions `schedule`
-- Fetches the latest video from a YouTube channel RSS feed
-- Sends a Discord embed notification when a new video is detected
-- Saves the last seen video ID in `state.json` to avoid duplicate posts
-- Supports **force-posting** any video on demand
+- Запускается каждые 10 минут через GitHub Actions `schedule`
+- Поддерживает **несколько YouTube-каналов** одновременно
+- Получает последнее видео из RSS-ленды каждого канала
+- Отправляет embed-уведомление в Discord, если найдено новое видео
+- Сохраняет состояние в `state.json` с датой и временем последней проверки
+- Поддерживает **force-posting** любого видео по запросу
 
-## Files
+## Файлы
 
-| File | Description |
-|------|-------------|
-| `youtube_to_discord.py` | Main script |
+| Файл | Описание |
+|------|----------|
+| `youtube_to_discord.py` | Основной скрипт |
 | `.github/workflows/youtube-discord.yml` | GitHub Actions workflow |
-| `requirements.txt` | Python dependencies |
-| `state.json` | Auto-created after first run |
+| `requirements.txt` | Python-зависимости |
+| `state.json` | Состояние (создаётся автоматически) |
 
-## Setup
+## Формат state.json
+
+```json
+{
+  "channels": {
+    "UCxxxxxxxxxxxxxxxx": {
+      "video_id": "dQw4w9WgXcQ",
+      "updated_at": "2026-06-08T15:41:04Z"
+    },
+    "UCyyyyyyyyyyyyyyyyyy": {
+      "video_id": "xxxxxxxxxxx",
+      "updated_at": "2026-06-08T14:00:00Z"
+    }
+  },
+  "last_checked": "2026-06-08T15:41:04Z",
+  "last_updated": "2026-06-08T15:41:04Z"
+}
+```
+
+## Настройка
 
 ### 1. GitHub Secrets
 
-Go to `Settings` -> `Secrets and variables` -> `Actions` -> `New repository secret`
+Перейди в `Settings` -> `Secrets and variables` -> `Actions` -> `New repository secret`
 
-| Secret | Required | Description |
-|--------|----------|-------------|
-| `DISCORD_WEBHOOK_URL` | Yes | Discord webhook URL |
-| `YOUTUBE_CHANNEL_ID` | Yes | YouTube channel ID (e.g. `UCxxxxx`) |
-| `DISCORD_ROLE_ID` | No | Role ID to ping on new video |
-| `BOT_NAME` | No | Webhook bot display name |
-| `BOT_AVATAR_URL` | No | Webhook bot avatar URL |
+| Секрет | Обязателен | Описание |
+|--------|------------|----------|
+| `DISCORD_WEBHOOK_URL` | Да | URL Discord webhook |
+| `YOUTUBE_CHANNEL_IDS` | Да | ID каналов через запятую (например, `UCxxxxx,UCyyyyy`) |
+| `DISCORD_ROLE_ID` | Нет | ID роли для пинга при новом видео |
+| `BOT_NAME` | Нет | Имя webhook-бота |
+| `BOT_AVATAR_URL` | Нет | URL аватара webhook-бота |
 
-### 2. First run
+### 2. Первый запуск
 
-Run the workflow manually via `Actions` -> `YouTube to Discord` -> `Run workflow` (leave field empty).
+Запусти workflow вручную через `Actions` -> `YouTube to Discord` -> `Run workflow` (поле оставить пустым).
 
-The first run **does not send** a Discord message - it only saves the current latest video to `state.json` as a baseline. All subsequent new videos will trigger notifications.
+Первый запуск **не отправляет** сообщение в Discord — он только сохраняет текущее последнее видео каждого канала в `state.json` как точку отсчёта. Все последующие новые видео будут вызывать уведомления.
 
-### 3. Automatic runs
+### 3. Force-post
 
-After the first run, the workflow triggers automatically every 5 minutes via cron schedule.
+Чтобы принудительно отправить последнее видео конкретного канала:
 
-## Force-post
+1. Перейди в `Actions` -> `YouTube to Discord` -> `Run workflow`
+2. В поле `Channel ID to force-post` введи ID канала
+3. Нажми `Run workflow`
 
-You can force-post the latest video from any channel on demand:
+## Как найти YouTube Channel ID
 
-1. Go to `Actions` -> `YouTube to Discord` -> `Run workflow`
-2. Enter a YouTube Channel ID in the `Channel ID to force-post` field
-3. Click `Run workflow`
+1. Открой канал на YouTube
+2. Перейди в `О канале` -> нажми `Поделиться` -> `Скопировать ID канала`
+3. Либо посмотри в URL: `youtube.com/channel/UCxxxxxxxx` — это и есть ID
 
-The bot will immediately post the latest video from that channel to Discord with a `[FORCE]` label. It also updates `state.json` so the next automatic run won't re-post it.
+## Требования
 
-## How to get a YouTube Channel ID
-
-1. Open the channel page on YouTube
-2. Open the page source (`Ctrl+U`) and search for `"externalId"` — the value next to it is the Channel ID
-
-Or check the RSS feed directly:
-```
-https://www.youtube.com/feeds/videos.xml?channel_id=YOUR_CHANNEL_ID
-```
-
-## Discord message format
-
-Each notification includes:
-- Role mention (if `DISCORD_ROLE_ID` is set)
-- Embed with video title (clickable link), channel name, thumbnail, and publish timestamp
-- Red color bar (#FF0000)
-- Footer: `YouTube RSS -> Discord`
-
-## Notes
-
-- GitHub Actions `schedule` may have delays of a few minutes under high load
-- Keep `DISCORD_WEBHOOK_URL` private - anyone with it can post to your channel
-- The role must have `Allow anyone to mention this role` enabled for pings to work
+- Python 3.11+
+- `requests` (устанавливается автоматически из `requirements.txt`)
