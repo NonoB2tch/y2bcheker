@@ -8,7 +8,11 @@ import xml.etree.ElementTree as ET
 
 STATE_FILE = Path("state.json")
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL", "").strip()
-YOUTUBE_CHANNEL_ID = os.getenv("YOUTUBE_CHANNEL_ID", "").strip()
+YOUTUBE_CHANNEL_IDS = [
+    ch.strip()
+    for ch in os.getenv("YOUTUBE_CHANNEL_IDS", "").split(",")
+    if ch.strip()
+]
 ROLE_ID = os.getenv("DISCORD_ROLE_ID", "").strip()
 BOT_NAME = os.getenv("BOT_NAME", "YouTube Notifier").strip() or "YouTube Notifier"
 BOT_AVATAR_URL = os.getenv("BOT_AVATAR_URL", "").strip()
@@ -28,21 +32,29 @@ def get_feed_url(channel_id: str) -> str:
     return f"https://www.youtube.com/feeds/videos.xml?channel_id={channel_id}"
 
 
-def load_last_video_id():
+def load_state() -> dict:
     if STATE_FILE.exists():
         try:
-            data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
-            return data.get("video_id")
+            return json.loads(STATE_FILE.read_text(encoding="utf-8"))
         except Exception:
-            return None
-    return None
+            return {}
+    return {}
 
 
-def save_last_video_id(video_id: str):
+def save_state(data: dict):
     STATE_FILE.write_text(
-        json.dumps({"video_id": video_id}, ensure_ascii=False, indent=2),
+        json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8"
     )
+
+
+def get_last_video_id(state: dict, channel_id: str):
+    return state.get("channels", {}).get(channel_id, {}).get("video_id")
+
+
+def set_last_video_id(state: dict, channel_id: str, video_id: str):
+    state.setdefault("channels", {})
+    state["channels"][channel_id] = {"video_id": video_id}
 
 
 def fetch_with_retry(url: str, timeout: int = 30):
@@ -146,7 +158,9 @@ def run_force(channel_id: str):
         fail(f"[FORCE] No videos found for channel: {channel_id}")
     print(f"[FORCE] Sending: {video['title']}")
     send_to_discord(video, force=True)
-    save_last_video_id(video["video_id"])
+    state = load_state()
+    set_last_video_id(state, channel_id, video["video_id"])
+    save_state(state)
     print(f"[FORCE] Done. state.json updated.")
 
 
@@ -156,26 +170,35 @@ def main():
     if FORCE_CHANNEL_ID:
         run_force(FORCE_CHANNEL_ID)
         return
-    if not YOUTUBE_CHANNEL_ID:
-        fail("Missing YOUTUBE_CHANNEL_ID")
-    print(f"Checking channel: {YOUTUBE_CHANNEL_ID}")
-    feed_url = get_feed_url(YOUTUBE_CHANNEL_ID)
-    resp = fetch_with_retry(feed_url)
-    latest_video = parse_latest_video(resp.text)
-    if not latest_video:
-        fail("No videos found in RSS feed.")
-    last_video_id = load_last_video_id()
-    current_id = latest_video["video_id"]
-    if not last_video_id:
-        save_last_video_id(current_id)
-        print(f"Initialized. Last video saved without notification: {latest_video['title']}")
-        return
-    if current_id != last_video_id:
-        send_to_discord(latest_video)
-        save_last_video_id(current_id)
-        print(f"Sent new video: {latest_video['title']}")
-    else:
-        print("No new videos.")
+    if not YOUTUBE_CHANNEL_IDS:
+        fail("Missing YOUTUBE_CHANNEL_IDS")
+    state = load_state()
+    state_changed = False
+    for channel_id in YOUTUBE_CHANNEL_IDS:
+        print(f"Checking channel: {channel_id}")
+        feed_url = get_feed_url(channel_id)
+        resp = fetch_with_retry(feed_url)
+        latest_video = parse_latest_video(resp.text)
+        if not latest_video:
+            print(f"No videos found for channel: {channel_id}")
+            continue
+        last_video_id = get_last_video_id(state, channel_id)
+        current_id = latest_video["video_id"]
+        if not last_video_id:
+            set_last_video_id(state, channel_id, current_id)
+            state_changed = True
+            print(f"[{channel_id}] Initialized. Saved without notification: {latest_video['title']}")
+            continue
+        if current_id != last_video_id:
+            send_to_discord(latest_video)
+            set_last_video_id(state, channel_id, current_id)
+            state_changed = True
+            print(f"[{channel_id}] Sent new video: {latest_video['title']}")
+        else:
+            print(f"[{channel_id}] No new videos.")
+    if state_changed:
+        save_state(state)
+        print("state.json updated.")
 
 
 if __name__ == "__main__":
