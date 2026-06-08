@@ -12,6 +12,7 @@ YOUTUBE_CHANNEL_ID = os.getenv("YOUTUBE_CHANNEL_ID", "").strip()
 ROLE_ID = os.getenv("DISCORD_ROLE_ID", "").strip()
 BOT_NAME = os.getenv("BOT_NAME", "YouTube Notifier").strip() or "YouTube Notifier"
 BOT_AVATAR_URL = os.getenv("BOT_AVATAR_URL", "").strip()
+FORCE_CHANNEL_ID = os.getenv("FORCE_CHANNEL_ID", "").strip()
 
 YT_COLOR = 0xFF0000
 RETRY_COUNT = 3
@@ -93,8 +94,9 @@ def parse_latest_video(feed_xml: str):
     }
 
 
-def send_to_discord(video):
+def send_to_discord(video, force: bool = False):
     mention = f"<@&{ROLE_ID}> " if ROLE_ID else ""
+    label = "[FORCE] " if force else ""
     embed = {
         "title": video["title"],
         "url": video["url"],
@@ -113,7 +115,7 @@ def send_to_discord(video):
         embed["image"] = {"url": video["thumbnail"]}
     payload = {
         "username": BOT_NAME,
-        "content": f"{mention}New video!",
+        "content": f"{mention}{label}New video!",
         "embeds": [embed],
     }
     if BOT_AVATAR_URL:
@@ -135,9 +137,25 @@ def send_to_discord(video):
     fail(f"Failed to send to Discord after {RETRY_COUNT} attempts")
 
 
+def run_force(channel_id: str):
+    print(f"[FORCE] Sending latest video from channel: {channel_id}")
+    feed_url = get_feed_url(channel_id)
+    resp = fetch_with_retry(feed_url)
+    video = parse_latest_video(resp.text)
+    if not video:
+        fail(f"[FORCE] No videos found for channel: {channel_id}")
+    print(f"[FORCE] Sending: {video['title']}")
+    send_to_discord(video, force=True)
+    save_last_video_id(video["video_id"])
+    print(f"[FORCE] Done. state.json updated.")
+
+
 def main():
     if not WEBHOOK_URL:
         fail("Missing DISCORD_WEBHOOK_URL")
+    if FORCE_CHANNEL_ID:
+        run_force(FORCE_CHANNEL_ID)
+        return
     if not YOUTUBE_CHANNEL_ID:
         fail("Missing YOUTUBE_CHANNEL_ID")
     print(f"Checking channel: {YOUTUBE_CHANNEL_ID}")
