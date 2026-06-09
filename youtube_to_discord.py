@@ -136,7 +136,7 @@ def send_to_discord(video, force: bool = False):
         embed["image"] = {"url": video["thumbnail"]}
     payload = {
         "username": BOT_NAME,
-        "content": f"{mention}{label}New video!",
+        "content": f"{mention}{label}Вышло новое видео!",
         "embeds": [embed],
     }
     if BOT_AVATAR_URL:
