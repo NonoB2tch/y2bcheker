@@ -3,6 +3,7 @@ import json
 import sys
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 import requests
 import xml.etree.ElementTree as ET
@@ -25,7 +26,7 @@ RETRY_DELAY = 5
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M:%S MSK")
 
 
 def fail(msg: str):
