@@ -27,15 +27,15 @@
   "channels": {
     "UCxxxxxxxxxxxxxxxx": {
       "video_id": "dQw4w9WgXcQ",
-      "updated_at": "2026-06-08T15:41:04Z"
+            "updated_at": "09.06.2026 06:00:00 MSK"
     },
     "UCyyyyyyyyyyyyyyyyyy": {
-      "video_id": "xxxxxxxxxxx",
-      "updated_at": "2026-06-08T14:00:00Z"
+            "updated_at": "09.06.2026 05:55:00 MSK"
+            "updated_at": "09.06.2026 05:55:00 MSK"
     }
   },
-  "last_checked": "2026-06-08T15:41:04Z",
-  "last_updated": "2026-06-08T15:41:04Z"
+    "last_checked": "09.06.2026 06:00:00 MSK",
+    "last_updated": "09.06.2026 06:00:00 MSK"
 }
 ```
 
