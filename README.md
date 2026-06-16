@@ -11,6 +11,7 @@
 - Отправляет embed-уведомление в Discord на каждое новое видео (от старого к новому)
 - Сохраняет историю отправленных видео в `state.json` с датой и временем (MSK)
 - Поддерживает **force-posting** любого видео по запросу
+- Поддерживает **reset-state**: обновление state.json без постов в Discord
 
 ## Файлы
 
@@ -55,7 +56,6 @@
 | `DISCORD_ROLE_ID` | Нет | ID роли для упоминания в уведомлении |
 | `BOT_NAME` | Нет | Имя бота в Discord (по умолчанию: `YouTube Notifier`) |
 | `BOT_AVATAR_URL` | Нет | URL аватара бота |
-| `FORCE_CHANNEL_ID` | Нет | ID канала для принудительной отправки последнего видео |
 
 ### 2. Получение YouTube Channel ID
 
@@ -84,8 +84,19 @@
 
 1. Перейди в `Actions` -> `YouTube to Discord`
 2. Нажми `Run workflow`
-3. В поле `FORCE_CHANNEL_ID` введи ID нужного канала
+3. В поле `force_channel_id` введи ID нужного канала
 4. Запусти workflow
+
+## Reset State
+
+Чтобы обновить `state.json` **без публикации в Discord** (полезно, если добавил новый канал):
+
+1. Перейди в `Actions` -> `YouTube to Discord`
+2. Нажми `Run workflow`
+3. В поле `reset_state` введи `true`
+4. Запусти workflow
+
+Скрипт соберёт последние 15 видео со всех каналов и сохранит их ID в `state.json` без отправки сообщений.
 
 ## Первый запуск
 
