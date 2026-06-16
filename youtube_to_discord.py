@@ -221,7 +221,7 @@ def main():
             print(f"[{channel_id}] Sent new video: {video['title']}")
             # Small delay between multiple posts to avoid rate limits
             if len(new_videos) > 1:
-                time.sleep(2)
+                time.sleep(5)
         new_ids = [v["video_id"] for v in new_videos]
         add_posted_ids(state, channel_id, new_ids)
         state_changed = True
