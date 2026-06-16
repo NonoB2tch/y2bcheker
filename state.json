@@ -1,11 +1,11 @@
 {
   "channels": {
-    "UCtnzeTECO1gGVjAb5r9Mv0w": {
-      "video_id": "2p2MIO1pUqk",
+    "UCtnzeTEC01gGVjAbSr9Mv0w": {
+      "posted_video_ids": ["2p2MIO1pUqk"],
       "updated_at": "15.06.2026 19:30:42 MSK"
     },
-    "UC3k0Y4ZN34pcuyyFFwLpa-A": {
-      "video_id": "LrddQpIMusw",
+    "UC3k8Y4ZN34pcuyyFFwLpa-A": {
+      "posted_video_ids": ["LrddQpIMuaw"],
       "updated_at": "16.06.2026 19:07:41 MSK"
     }
   },
