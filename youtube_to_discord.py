@@ -19,6 +19,7 @@ ROLE_ID = os.getenv("DISCORD_ROLE_ID", "").strip()
 BOT_NAME = os.getenv("BOT_NAME", "YouTube Notifier").strip() or "YouTube Notifier"
 BOT_AVATAR_URL = os.getenv("BOT_AVATAR_URL", "").strip()
 FORCE_CHANNEL_ID = os.getenv("FORCE_CHANNEL_ID", "").strip()
+RESET_STATE = os.getenv("RESET_STATE", "").strip().lower() in ("1", "true", "yes")
 YT_COLOR = 0xFF0000
 RETRY_COUNT = 3
 RETRY_DELAY = 5
@@ -58,7 +59,6 @@ def save_state(data: dict):
 
 def get_posted_ids(state: dict, channel_id: str) -> list:
     channel_data = state.get("channels", {}).get(channel_id, {})
-    # Backward compatibility: if old state has video_id, migrate it
     if "video_id" in channel_data and "posted_video_ids" not in channel_data:
         return [channel_data["video_id"]]
     return channel_data.get("posted_video_ids", [])
@@ -66,10 +66,8 @@ def get_posted_ids(state: dict, channel_id: str) -> list:
 
 def add_posted_ids(state: dict, channel_id: str, new_ids: list):
     state.setdefault("channels", {})
-    channel_data = state["channels"].get(channel_id, {})
     existing = get_posted_ids(state, channel_id)
     merged = existing + new_ids
-    # Keep only the last MAX_POSTED_IDS entries
     merged = merged[-MAX_POSTED_IDS:]
     state["channels"][channel_id] = {
         "posted_video_ids": merged,
@@ -185,9 +183,33 @@ def run_force(channel_id: str):
     print(f"[FORCE] Done. state.json updated at {state['last_updated']}")
 
 
+def run_reset_state():
+    """Fetch all channels and update state.json without posting to Discord."""
+    if not YOUTUBE_CHANNEL_IDS:
+        fail("Missing YOUTUBE_CHANNEL_IDS")
+    print("[RESET] Updating state.json without posting to Discord...")
+    state = load_state()
+    for channel_id in YOUTUBE_CHANNEL_IDS:
+        print(f"[RESET] Fetching channel: {channel_id}")
+        feed_url = get_feed_url(channel_id)
+        resp = fetch_with_retry(feed_url)
+        videos = parse_feed_videos(resp.text)
+        if not videos:
+            print(f"[RESET] No videos found for channel: {channel_id}")
+            continue
+        all_ids = [v["video_id"] for v in videos]
+        add_posted_ids(state, channel_id, all_ids)
+        print(f"[RESET] Saved {len(all_ids)} video IDs for channel {channel_id} (no Discord post)")
+    save_state(state)
+    print(f"[RESET] Done. state.json updated at {state['last_updated']}")
+
+
 def main():
     if not WEBHOOK_URL:
         fail("Missing DISCORD_WEBHOOK_URL")
+    if RESET_STATE:
+        run_reset_state()
+        return
     if FORCE_CHANNEL_ID:
         run_force(FORCE_CHANNEL_ID)
         return
@@ -205,13 +227,11 @@ def main():
             continue
         posted_ids = get_posted_ids(state, channel_id)
         if not posted_ids:
-            # First run: save all current IDs without posting
             all_ids = [v["video_id"] for v in videos]
             add_posted_ids(state, channel_id, all_ids)
             state_changed = True
             print(f"[{channel_id}] Initialized with {len(all_ids)} videos. No notifications sent.")
             continue
-        # Find all new videos not yet posted (oldest first)
         new_videos = [v for v in reversed(videos) if v["video_id"] not in posted_ids]
         if not new_videos:
             print(f"[{channel_id}] No new videos.")
@@ -219,9 +239,8 @@ def main():
         for video in new_videos:
             send_to_discord(video)
             print(f"[{channel_id}] Sent new video: {video['title']}")
-            # Small delay between multiple posts to avoid rate limits
             if len(new_videos) > 1:
-                time.sleep(5)
+                time.sleep(2)
         new_ids = [v["video_id"] for v in new_videos]
         add_posted_ids(state, channel_id, new_ids)
         state_changed = True
@@ -229,7 +248,6 @@ def main():
         save_state(state)
         print(f"state.json updated at {state['last_updated']}")
     else:
-        # Always update last_checked timestamp even if no new videos
         state["last_checked"] = now_iso()
         save_state(state)
         print(f"No changes. state.json last_checked updated at {state['last_updated']}")
