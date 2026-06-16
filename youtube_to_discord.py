@@ -19,14 +19,15 @@ ROLE_ID = os.getenv("DISCORD_ROLE_ID", "").strip()
 BOT_NAME = os.getenv("BOT_NAME", "YouTube Notifier").strip() or "YouTube Notifier"
 BOT_AVATAR_URL = os.getenv("BOT_AVATAR_URL", "").strip()
 FORCE_CHANNEL_ID = os.getenv("FORCE_CHANNEL_ID", "").strip()
-
 YT_COLOR = 0xFF0000
 RETRY_COUNT = 3
 RETRY_DELAY = 5
+MAX_POSTED_IDS = 50
+FEED_ENTRIES_LIMIT = 15
 
 
 def now_iso() -> str:
-        return datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M:%S MSK")
+    return datetime.now(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y %H:%M:%S MSK")
 
 
 def fail(msg: str):
@@ -55,14 +56,23 @@ def save_state(data: dict):
     )
 
 
-def get_last_video_id(state: dict, channel_id: str):
-    return state.get("channels", {}).get(channel_id, {}).get("video_id")
+def get_posted_ids(state: dict, channel_id: str) -> list:
+    channel_data = state.get("channels", {}).get(channel_id, {})
+    # Backward compatibility: if old state has video_id, migrate it
+    if "video_id" in channel_data and "posted_video_ids" not in channel_data:
+        return [channel_data["video_id"]]
+    return channel_data.get("posted_video_ids", [])
 
 
-def set_last_video_id(state: dict, channel_id: str, video_id: str):
+def add_posted_ids(state: dict, channel_id: str, new_ids: list):
     state.setdefault("channels", {})
+    channel_data = state["channels"].get(channel_id, {})
+    existing = get_posted_ids(state, channel_id)
+    merged = existing + new_ids
+    # Keep only the last MAX_POSTED_IDS entries
+    merged = merged[-MAX_POSTED_IDS:]
     state["channels"][channel_id] = {
-        "video_id": video_id,
+        "posted_video_ids": merged,
         "updated_at": now_iso()
     }
 
@@ -80,40 +90,41 @@ def fetch_with_retry(url: str, timeout: int = 30):
     fail(f"Failed to fetch {url} after {RETRY_COUNT} attempts")
 
 
-def parse_latest_video(feed_xml: str):
+def parse_feed_videos(feed_xml: str, limit: int = FEED_ENTRIES_LIMIT) -> list:
     ns = {
         "atom": "http://www.w3.org/2005/Atom",
         "yt": "http://www.youtube.com/xml/schemas/2015",
         "media": "http://search.yahoo.com/mrss/"
     }
     root = ET.fromstring(feed_xml)
-    entry = root.find("atom:entry", ns)
-    if entry is None:
-        return None
-    video_id = entry.findtext("yt:videoId", default="", namespaces=ns)
-    title = entry.findtext("atom:title", default="New video", namespaces=ns)
-    published = entry.findtext("atom:published", default="", namespaces=ns)
-    link = entry.find("atom:link", ns)
-    url = link.attrib.get("href") if link is not None else f"https://youtu.be/{video_id}"
-    author = entry.find("atom:author", ns)
-    channel_name = (
-        author.findtext("atom:name", default="YouTube", namespaces=ns)
-        if author is not None else "YouTube"
-    )
-    thumbnail = None
-    group = entry.find("media:group", ns)
-    if group is not None:
-        thumb = group.find("media:thumbnail", ns)
-        if thumb is not None:
-            thumbnail = thumb.attrib.get("url")
-    return {
-        "video_id": video_id,
-        "title": title,
-        "url": url,
-        "channel_name": channel_name,
-        "thumbnail": thumbnail,
-        "published": published,
-    }
+    entries = root.findall("atom:entry", ns)[:limit]
+    videos = []
+    for entry in entries:
+        video_id = entry.findtext("yt:videoId", default="", namespaces=ns)
+        title = entry.findtext("atom:title", default="New video", namespaces=ns)
+        published = entry.findtext("atom:published", default="", namespaces=ns)
+        link = entry.find("atom:link", ns)
+        url = link.attrib.get("href") if link is not None else f"https://youtu.be/{video_id}"
+        author = entry.find("atom:author", ns)
+        channel_name = (
+            author.findtext("atom:name", default="YouTube", namespaces=ns)
+            if author is not None else "YouTube"
+        )
+        thumbnail = None
+        group = entry.find("media:group", ns)
+        if group is not None:
+            thumb = group.find("media:thumbnail", ns)
+            if thumb is not None:
+                thumbnail = thumb.attrib.get("url")
+        videos.append({
+            "video_id": video_id,
+            "title": title,
+            "url": url,
+            "channel_name": channel_name,
+            "thumbnail": thumbnail,
+            "published": published,
+        })
+    return videos
 
 
 def send_to_discord(video, force: bool = False):
@@ -162,13 +173,14 @@ def run_force(channel_id: str):
     print(f"[FORCE] Sending latest video from channel: {channel_id}")
     feed_url = get_feed_url(channel_id)
     resp = fetch_with_retry(feed_url)
-    video = parse_latest_video(resp.text)
-    if not video:
+    videos = parse_feed_videos(resp.text, limit=1)
+    if not videos:
         fail(f"[FORCE] No videos found for channel: {channel_id}")
+    video = videos[0]
     print(f"[FORCE] Sending: {video['title']}")
     send_to_discord(video, force=True)
     state = load_state()
-    set_last_video_id(state, channel_id, video["video_id"])
+    add_posted_ids(state, channel_id, [video["video_id"]])
     save_state(state)
     print(f"[FORCE] Done. state.json updated at {state['last_updated']}")
 
@@ -187,24 +199,32 @@ def main():
         print(f"Checking channel: {channel_id}")
         feed_url = get_feed_url(channel_id)
         resp = fetch_with_retry(feed_url)
-        latest_video = parse_latest_video(resp.text)
-        if not latest_video:
+        videos = parse_feed_videos(resp.text)
+        if not videos:
             print(f"No videos found for channel: {channel_id}")
             continue
-        last_video_id = get_last_video_id(state, channel_id)
-        current_id = latest_video["video_id"]
-        if not last_video_id:
-            set_last_video_id(state, channel_id, current_id)
+        posted_ids = get_posted_ids(state, channel_id)
+        if not posted_ids:
+            # First run: save all current IDs without posting
+            all_ids = [v["video_id"] for v in videos]
+            add_posted_ids(state, channel_id, all_ids)
             state_changed = True
-            print(f"[{channel_id}] Initialized. Saved without notification: {latest_video['title']}")
+            print(f"[{channel_id}] Initialized with {len(all_ids)} videos. No notifications sent.")
             continue
-        if current_id != last_video_id:
-            send_to_discord(latest_video)
-            set_last_video_id(state, channel_id, current_id)
-            state_changed = True
-            print(f"[{channel_id}] Sent new video: {latest_video['title']}")
-        else:
+        # Find all new videos not yet posted (oldest first)
+        new_videos = [v for v in reversed(videos) if v["video_id"] not in posted_ids]
+        if not new_videos:
             print(f"[{channel_id}] No new videos.")
+            continue
+        for video in new_videos:
+            send_to_discord(video)
+            print(f"[{channel_id}] Sent new video: {video['title']}")
+            # Small delay between multiple posts to avoid rate limits
+            if len(new_videos) > 1:
+                time.sleep(2)
+        new_ids = [v["video_id"] for v in new_videos]
+        add_posted_ids(state, channel_id, new_ids)
+        state_changed = True
     if state_changed:
         save_state(state)
         print(f"state.json updated at {state['last_updated']}")
